@@ -1,0 +1,277 @@
+import random
+
+# Intervention options
+INTERVENTIONS = [
+    "Behavioral Intervention",
+    "Speech Therapy",
+    "Occupational Therapy",
+    "Social Skills Training",
+    "Parent-Mediated Intervention",
+    "Educational Intervention"
+]
+
+
+EFFECTIVENESS = {
+    "Behavioral Intervention": {
+        "communication": 7,
+        "social": 8,
+        "adaptive": 7
+    },
+    "Speech Therapy": {
+        "communication": 10,
+        "social": 6,
+        "adaptive": 5
+    },
+    "Occupational Therapy": {
+        "communication": 4,
+        "social": 6,
+        "adaptive": 9
+    },
+    "Social Skills Training": {
+        "communication": 6,
+        "social": 10,
+        "adaptive": 7
+    },
+    "Parent-Mediated Intervention": {
+        "communication": 7,
+        "social": 7,
+        "adaptive": 8
+    },
+    "Educational Intervention": {
+        "communication": 6,
+        "social": 6,
+        "adaptive": 9
+    }
+}
+
+COST = {
+    "Behavioral Intervention": 5,
+    "Speech Therapy": 4,
+    "Occupational Therapy": 4,
+    "Social Skills Training": 3,
+    "Parent-Mediated Intervention": 2,
+    "Educational Intervention": 3
+}
+
+
+patient = {
+    "communication_need": 8,
+    "social_need": 9,
+    "adaptive_need": 6,
+    "budget": 15
+}
+
+POPULATION_SIZE = 50
+GENERATIONS = 100
+MUTATION_RATE = 0.10
+CROSSOVER_RATE = 0.80
+
+def create_chromosome():
+    """
+    Each gene represents whether an intervention is selected.
+
+    0 = Not selected
+    1 = Selected
+    """
+
+    return [random.randint(0, 1) for _ in INTERVENTIONS]
+
+
+def create_population():
+    return [
+        create_chromosome()
+        for _ in range(POPULATION_SIZE)
+    ]
+
+
+def fitness(chromosome):
+
+    communication_score = 0
+    social_score = 0
+    adaptive_score = 0
+    total_cost = 0
+
+    for gene, intervention in zip(chromosome, INTERVENTIONS):
+
+        if gene == 1:
+
+            communication_score += (
+                EFFECTIVENESS[intervention]["communication"]
+                * patient["communication_need"]
+            )
+
+            social_score += (
+                EFFECTIVENESS[intervention]["social"]
+                * patient["social_need"]
+            )
+
+            adaptive_score += (
+                EFFECTIVENESS[intervention]["adaptive"]
+                * patient["adaptive_need"]
+            )
+
+            total_cost += COST[intervention]
+
+    # Avoid solutions with no intervention
+    if sum(chromosome) == 0:
+        return 0
+
+    # Normalize effectiveness
+    effectiveness_score = (
+        communication_score
+        + social_score
+        + adaptive_score
+    )
+
+    # Penalize plans that exceed the budget
+    if total_cost > patient["budget"]:
+        budget_penalty = (total_cost - patient["budget"]) * 50
+    else:
+        budget_penalty = 0
+
+    final_fitness = effectiveness_score - budget_penalty
+
+    return final_fitness
+
+
+def selection(population):
+
+    # Tournament selection
+    tournament_size = 3
+
+    tournament = random.sample(
+        population,
+        tournament_size
+    )
+
+    tournament.sort(
+        key=fitness,
+        reverse=True
+    )
+
+    return tournament[0]
+
+def crossover(parent1, parent2):
+
+    if random.random() > CROSSOVER_RATE:
+        return parent1[:], parent2[:]
+
+    point = random.randint(
+        1,
+        len(parent1) - 1
+    )
+
+    child1 = (
+        parent1[:point]
+        + parent2[point:]
+    )
+
+    child2 = (
+        parent2[:point]
+        + parent1[point:]
+    )
+
+    return child1, child2
+
+def mutation(chromosome):
+
+    chromosome = chromosome[:]
+
+    for i in range(len(chromosome)):
+
+        if random.random() < MUTATION_RATE:
+
+            # Flip gene
+            chromosome[i] = 1 - chromosome[i]
+
+    return chromosome
+
+
+def genetic_algorithm():
+
+    population = create_population()
+
+    best_solution = None
+    best_fitness = float("-inf")
+
+    for generation in range(GENERATIONS):
+
+        # Evaluate current population
+        population.sort(
+            key=fitness,
+            reverse=True
+        )
+
+        # Keep the best solution
+        if fitness(population[0]) > best_fitness:
+
+            best_solution = population[0][:]
+            best_fitness = fitness(
+                population[0]
+            )
+
+        # Elitism
+        new_population = [
+            population[0][:]
+        ]
+
+        # Generate new population
+        while len(new_population) < POPULATION_SIZE:
+
+            parent1 = selection(population)
+            parent2 = selection(population)
+
+            child1, child2 = crossover(
+                parent1,
+                parent2
+            )
+
+            child1 = mutation(child1)
+            child2 = mutation(child2)
+
+            new_population.append(child1)
+
+            if len(new_population) < POPULATION_SIZE:
+                new_population.append(child2)
+
+        population = new_population
+
+        print(
+            f"Generation {generation + 1:3d} | "
+            f"Best Fitness: {best_fitness:.2f}"
+        )
+
+    return best_solution, best_fitness
+
+
+best_solution, best_fitness = genetic_algorithm()
+
+print("\n" + "=" * 60)
+print("OPTIMIZED INTERVENTION PLAN")
+print("=" * 60)
+
+total_cost = 0
+
+for gene, intervention in zip(
+    best_solution,
+    INTERVENTIONS
+):
+
+    if gene == 1:
+
+        print(f"✓ {intervention}")
+
+        total_cost += COST[intervention]
+
+    else:
+
+        print(f"✗ {intervention}")
+
+
+print("\nFitness Score:", round(best_fitness, 2))
+print("Total Cost:", total_cost)
+print("Budget:", patient["budget"])
+
+print("\nNOTE:")
+print("This is a GA demonstration using synthetic data.")
+print("It is NOT a medical treatment recommendation.")
