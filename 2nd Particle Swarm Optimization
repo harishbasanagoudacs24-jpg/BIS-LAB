@@ -1,0 +1,409 @@
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ==========================================
+# 1. DEFINE ENVIRONMENT
+# ==========================================
+
+START = np.array([0.0, 0.0])
+GOAL = np.array([10.0, 10.0])
+
+# Circular obstacles (x, y, radius)
+obstacles = [
+    (3, 3, 1.2),
+    (5, 5, 1.5),
+    (7, 7, 1.2),
+    (4, 8, 1.0)
+]
+
+CLEARANCE = 0.4
+
+# ==========================================
+# 2. PSO PARAMETERS
+# ==========================================
+
+n_particles = 80
+n_waypoints = 5
+max_iterations = 300
+
+w = 0.7
+c1 = 1.5
+c2 = 1.5
+
+# Fix X coordinates and optimize Y coordinates
+waypoint_x = np.linspace(
+    0, 10, n_waypoints + 2
+)[1:-1]
+
+dimensions = n_waypoints
+
+# Initialize particle positions
+positions = np.random.uniform(
+    0, 10, (n_particles, dimensions)
+)
+
+# Initialize velocities
+velocities = np.random.uniform(
+    -0.5, 0.5, (n_particles, dimensions)
+)
+
+# ==========================================
+# 3. DISTANCE FROM POINT TO LINE SEGMENT
+# ==========================================
+
+def segment_distance(a, b, center):
+
+    ab = b - a
+
+    length_squared = np.dot(ab, ab)
+
+    if length_squared == 0:
+        return np.linalg.norm(a - center)
+
+    t = np.dot(center - a, ab) / length_squared
+
+    t = np.clip(t, 0, 1)
+
+    closest_point = a + t * ab
+
+    return np.linalg.norm(closest_point - center)
+
+
+# ==========================================
+# 4. FITNESS FUNCTION
+# ==========================================
+
+def fitness(position):
+
+    points = np.column_stack((
+        waypoint_x,
+        position
+    ))
+
+    path = np.vstack([
+        START,
+        points,
+        GOAL
+    ])
+
+    # Calculate total path length
+    distance = np.sum(
+        np.linalg.norm(
+            np.diff(path, axis=0),
+            axis=1
+        )
+    )
+
+    # Calculate obstacle penalty
+    penalty = 0
+
+    for x, y, radius in obstacles:
+
+        center = np.array([x, y])
+
+        safe_radius = radius + CLEARANCE
+
+        for a, b in zip(path[:-1], path[1:]):
+
+            d = segment_distance(a, b, center)
+
+            if d < safe_radius:
+
+                penetration = safe_radius - d
+
+                penalty += (
+                    1000 + 10000 * penetration**2
+                )
+
+    return distance + penalty
+
+
+# ==========================================
+# 5. INITIALIZE PERSONAL AND GLOBAL BEST
+# ==========================================
+
+pbest_positions = positions.copy()
+
+pbest_scores = np.array([
+    fitness(p) for p in positions
+])
+
+gbest_index = np.argmin(pbest_scores)
+
+gbest_position = pbest_positions[
+    gbest_index
+].copy()
+
+gbest_score = pbest_scores[gbest_index]
+
+history = []
+
+# ==========================================
+# 6. PARTICLE SWARM OPTIMIZATION
+# ==========================================
+
+for iteration in range(max_iterations):
+
+    for i in range(n_particles):
+
+        r1 = np.random.rand(dimensions)
+        r2 = np.random.rand(dimensions)
+
+        # Update velocity
+        velocities[i] = (
+            w * velocities[i]
+            + c1 * r1 * (
+                pbest_positions[i] - positions[i]
+            )
+            + c2 * r2 * (
+                gbest_position - positions[i]
+            )
+        )
+
+        # Limit velocity
+        velocities[i] = np.clip(
+            velocities[i], -2, 2
+        )
+
+        # Update position
+        positions[i] += velocities[i]
+
+        positions[i] = np.clip(
+            positions[i], 0, 10
+        )
+
+        # Calculate fitness
+        score = fitness(positions[i])
+
+        # Update personal best
+        if score < pbest_scores[i]:
+
+            pbest_scores[i] = score
+
+            pbest_positions[i] = (
+                positions[i].copy()
+            )
+
+    # Update global best
+    best_index = np.argmin(pbest_scores)
+
+    if pbest_scores[best_index] < gbest_score:
+
+        gbest_score = pbest_scores[best_index]
+
+        gbest_position = (
+            pbest_positions[best_index].copy()
+        )
+
+    history.append(gbest_score)
+
+    if iteration % 10 == 0:
+
+        print(
+            f"Iteration {iteration}: "
+            f"Best Fitness = {gbest_score:.4f}"
+        )
+
+
+# ==========================================
+# 7. GENERATE OPTIMIZED PATH
+# ==========================================
+
+best_points = np.column_stack((
+    waypoint_x,
+    gbest_position
+))
+
+best_path = np.vstack([
+    START,
+    best_points,
+    GOAL
+])
+
+print("\n================================")
+print("OPTIMIZED ROBOT PATH")
+print("================================")
+
+print(best_path)
+
+print("\nBest Fitness:", gbest_score)
+
+# ==========================================
+# 8. VALIDATE OBSTACLE COLLISIONS
+# ==========================================
+
+collision_free = True
+
+for x, y, radius in obstacles:
+
+    center = np.array([x, y])
+
+    safe_radius = radius + CLEARANCE
+
+    for a, b in zip(
+        best_path[:-1],
+        best_path[1:]
+    ):
+
+        d = segment_distance(a, b, center)
+
+        if d < safe_radius:
+
+            collision_free = False
+
+            print(
+                "Warning: Path intersects safety zone "
+                f"of obstacle at ({x}, {y})"
+            )
+
+if collision_free:
+
+    print("\nPath is collision-free!")
+
+else:
+
+    print("\nPath is NOT collision-free.")
+    print("Try increasing particles or iterations.")
+
+
+# ==========================================
+# 9. ROBOT PATH VISUALIZATION
+# ==========================================
+
+plt.figure(figsize=(9, 8))
+
+# Draw obstacles
+for x, y, radius in obstacles:
+
+    circle = plt.Circle(
+        (x, y),
+        radius,
+        color='red',
+        alpha=0.5
+    )
+
+    plt.gca().add_patch(circle)
+
+    # Draw safety boundary
+    safety_circle = plt.Circle(
+        (x, y),
+        radius + CLEARANCE,
+        color='orange',
+        fill=False,
+        linestyle='--'
+    )
+
+    plt.gca().add_patch(safety_circle)
+
+
+# Draw optimized path
+plt.plot(
+    best_path[:, 0],
+    best_path[:, 1],
+    'b-o',
+    linewidth=2.5,
+    markersize=6,
+    label='Optimized Robot Path'
+)
+
+# Draw start and goal
+plt.scatter(
+    START[0], START[1],
+    color='green',
+    s=180,
+    label='Start',
+    zorder=5
+)
+
+plt.scatter(
+    GOAL[0], GOAL[1],
+    color='purple',
+    s=180,
+    label='Goal',
+    zorder=5
+)
+
+plt.xlabel("X Coordinate")
+plt.ylabel("Y Coordinate")
+
+plt.title(
+    "Robot Path Planning Using Particle Swarm Optimization"
+)
+
+plt.xlim(0, 10)
+plt.ylim(0, 10)
+
+plt.grid(True)
+plt.legend()
+plt.axis('equal')
+
+plt.show()
+
+
+# ==========================================
+# 10. PSO CONVERGENCE GRAPH
+# ==========================================
+
+plt.figure(figsize=(9, 5))
+
+plt.plot(
+    history,
+    color='blue',
+    linewidth=2
+)
+
+plt.xlabel("Iterations")
+plt.ylabel("Best Fitness Value")
+
+plt.title(
+    "PSO Convergence Curve"
+)
+
+plt.grid(True)
+
+plt.show()
+
+# ==========================================
+# END OF PROGRAM
+# ==========================================
+
+
+#Output:
+Iteration 0: Best Fitness = 318.0979
+Iteration 10: Best Fitness = 16.7848
+Iteration 20: Best Fitness = 16.3799
+Iteration 30: Best Fitness = 15.9952
+Iteration 40: Best Fitness = 15.8113
+Iteration 50: Best Fitness = 15.7949
+Iteration 60: Best Fitness = 15.7874
+Iteration 70: Best Fitness = 15.7720
+Iteration 80: Best Fitness = 15.7613
+Iteration 90: Best Fitness = 15.7065
+Iteration 100: Best Fitness = 15.7049
+Iteration 110: Best Fitness = 15.7045
+Iteration 120: Best Fitness = 15.7045
+Iteration 130: Best Fitness = 15.7045
+Iteration 140: Best Fitness = 15.7045
+Iteration 150: Best Fitness = 15.7045
+Iteration 160: Best Fitness = 15.7045
+Iteration 170: Best Fitness = 15.7045
+Iteration 180: Best Fitness = 15.7045
+Iteration 190: Best Fitness = 15.7045
+
+================================
+ROBOT PATH PLANNING RESULTS
+================================
+
+Optimized Path:
+[0. 0.]
+[0. 0.]
+[0. 0.]
+[6.865 2.059]
+[10. 10.]
+[10. 10.]
+[10. 10.]
+
+Total Path Distance: 15.704
+Collision Status: Collision-free
+Best Fitness: 15.7045
