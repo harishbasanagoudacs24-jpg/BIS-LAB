@@ -1,0 +1,479 @@
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ==========================================
+# 1. DEFINE CITIES
+# ==========================================
+
+cities = np.array([
+    [1, 2],
+    [3, 7],
+    [5, 4],
+    [8, 8],
+    [9, 2],
+    [6, 1],
+    [2, 5],
+    [7, 5]
+], dtype=float)
+
+n_cities = len(cities)
+
+# Calculate distance matrix
+distance = np.linalg.norm(
+    cities[:, None, :] - cities[None, :, :],
+    axis=2
+)
+
+# Visibility matrix
+visibility = np.zeros_like(distance)
+
+np.divide(
+    1.0,
+    distance,
+    out=visibility,
+    where=distance > 0
+)
+
+# ==========================================
+# 2. ACO PARAMETERS
+# ==========================================
+
+n_ants = 50
+n_iterations = 300
+
+alpha = 1.0
+beta = 2.0
+
+rho = 0.5
+Q = 100
+
+elite_weight = 2.0
+
+# Random generator
+rng = np.random.default_rng()
+
+# Initialize pheromone matrix
+pheromone = np.ones(
+    (n_cities, n_cities)
+)
+
+# ==========================================
+# 3. INITIALIZE BEST SOLUTION
+# ==========================================
+
+global_best_route = None
+global_best_distance = float('inf')
+
+convergence = []
+iteration_best_history = []
+
+# ==========================================
+# 4. CALCULATE ROUTE DISTANCE
+# ==========================================
+
+def calculate_distance(route):
+
+    total = 0
+
+    for i in range(len(route) - 1):
+
+        total += distance[
+            route[i],
+            route[i + 1]
+        ]
+
+    return total
+
+
+# ==========================================
+# 5. CONSTRUCT ANT ROUTE
+# ==========================================
+
+def construct_route():
+
+    start = rng.integers(0, n_cities)
+
+    route = [start]
+
+    while len(route) < n_cities:
+
+        current = route[-1]
+
+        # Find unvisited cities
+        allowed = [
+            city for city in range(n_cities)
+            if city not in route
+        ]
+
+        # Calculate probabilities
+        weights = np.array([
+            pheromone[current, city] ** alpha
+            * visibility[current, city] ** beta
+            for city in allowed
+        ])
+
+        probabilities = weights / np.sum(weights)
+
+        # Random exploration
+        if rng.random() < 0.10:
+
+            next_city = rng.choice(allowed)
+
+        else:
+
+            next_city = rng.choice(
+                allowed,
+                p=probabilities
+            )
+
+        route.append(next_city)
+
+    # Return to starting city
+    route.append(start)
+
+    return route
+
+
+# ==========================================
+# 6. MAIN ACO ALGORITHM
+# ==========================================
+
+print("Starting Ant Colony Optimization...")
+print("-------------------------------------")
+
+for iteration in range(n_iterations):
+
+    all_routes = []
+    all_distances = []
+
+    iteration_best = float('inf')
+
+    # Every ant constructs a route
+    for ant in range(n_ants):
+
+        route = construct_route()
+
+        route_length = calculate_distance(route)
+
+        all_routes.append(route)
+        all_distances.append(route_length)
+
+        # Best route in current iteration
+        if route_length < iteration_best:
+
+            iteration_best = route_length
+
+        # Update global best
+        if route_length < global_best_distance:
+
+            global_best_distance = route_length
+
+            global_best_route = route.copy()
+
+    # ======================================
+    # 7. PHEROMONE EVAPORATION
+    # ======================================
+
+    pheromone *= (1 - rho)
+
+    # Prevent pheromone from becoming zero
+    pheromone = np.maximum(
+        pheromone,
+        0.01
+    )
+
+    # ======================================
+    # 8. PHEROMONE DEPOSIT
+    # ======================================
+
+    for route, length in zip(
+        all_routes,
+        all_distances
+    ):
+
+        deposit = Q / length
+
+        for i in range(len(route) - 1):
+
+            a = route[i]
+            b = route[i + 1]
+
+            pheromone[a, b] += deposit
+            pheromone[b, a] += deposit
+
+    # ======================================
+    # 9. ELITIST UPDATE
+    # ======================================
+
+    elite_deposit = (
+        elite_weight * Q / global_best_distance
+    )
+
+    for i in range(len(global_best_route) - 1):
+
+        a = global_best_route[i]
+        b = global_best_route[i + 1]
+
+        pheromone[a, b] += elite_deposit
+        pheromone[b, a] += elite_deposit
+
+    # ======================================
+    # 10. RECORD RESULTS
+    # ======================================
+
+    convergence.append(global_best_distance)
+
+    iteration_best_history.append(iteration_best)
+
+    if iteration % 10 == 0:
+
+        print(
+            f"Iteration {iteration:3d} | "
+            f"Current Best = {iteration_best:.2f} | "
+            f"Overall Best = {global_best_distance:.2f}"
+        )
+
+
+# ==========================================
+# 11. DISPLAY FINAL RESULTS
+# ==========================================
+
+print("\n====================================")
+print("ACO FINAL RESULTS")
+print("====================================")
+
+print("\nBest Route:")
+
+print(
+    " -> ".join(
+        str(city + 1)
+        for city in global_best_route
+    )
+)
+
+print(
+    "\nShortest Distance:",
+    round(global_best_distance, 4)
+)
+
+print("Total Cities:", n_cities)
+print("Total Ants:", n_ants)
+print("Total Iterations:", n_iterations)
+
+
+# ==========================================
+# 12. EXACT SOLUTION FOR VERIFICATION
+# ==========================================
+
+# For eight cities, checking all possible tours
+# is practical (fixing city 1 as the start).
+
+from itertools import permutations
+
+exact_best_distance = float('inf')
+exact_best_route = None
+
+for perm in permutations(range(1, n_cities)):
+
+    route = [0] + list(perm) + [0]
+
+    length = calculate_distance(route)
+
+    if length < exact_best_distance:
+
+        exact_best_distance = length
+        exact_best_route = route
+
+print("\nExact Optimal Distance:",
+      round(exact_best_distance, 4))
+
+print(
+    "ACO optimality gap:",
+    round(
+        100 * (
+            global_best_distance - exact_best_distance
+        ) / exact_best_distance,
+        2
+    ),
+    "%"
+)
+
+
+# ==========================================
+# 13. OPTIMIZED ROUTE GRAPH
+# ==========================================
+
+plt.figure(figsize=(9, 7))
+
+route_points = cities[global_best_route]
+
+plt.plot(
+    route_points[:, 0],
+    route_points[:, 1],
+    'b-o',
+    linewidth=2.5,
+    markersize=8,
+    label='ACO Optimized Route'
+)
+
+plt.scatter(
+    cities[:, 0],
+    cities[:, 1],
+    color='red',
+    s=130,
+    zorder=3,
+    label='Cities'
+)
+
+# Label all cities
+for i, (x, y) in enumerate(cities):
+
+    plt.annotate(
+        f'City {i + 1}',
+        (x, y),
+        xytext=(5, 7),
+        textcoords='offset points'
+    )
+
+# Highlight starting city
+start = global_best_route[0]
+
+plt.scatter(
+    cities[start, 0],
+    cities[start, 1],
+    color='green',
+    s=220,
+    label='Starting City',
+    zorder=4
+)
+
+plt.title(
+    'Optimal Route Using Ant Colony Optimization'
+)
+
+plt.xlabel('X Coordinate')
+plt.ylabel('Y Coordinate')
+
+plt.grid(True)
+plt.legend()
+plt.axis('equal')
+
+plt.show()
+
+
+# ==========================================
+# 14. CONVERGENCE GRAPH
+# ==========================================
+
+plt.figure(figsize=(10, 5))
+
+plt.plot(
+    range(n_iterations),
+    convergence,
+    color='blue',
+    linewidth=2,
+    label='Overall Best Distance'
+)
+
+plt.plot(
+    range(n_iterations),
+    iteration_best_history,
+    color='orange',
+    alpha=0.6,
+    linewidth=1,
+    label='Current Iteration Best'
+)
+
+plt.xlabel('Iterations')
+plt.ylabel('Route Distance')
+
+plt.title('ACO Convergence Graph')
+
+plt.legend()
+plt.grid(True)
+
+plt.show()
+
+
+# ==========================================
+# 15. PHEROMONE MATRIX
+# ==========================================
+
+plt.figure(figsize=(7, 6))
+
+plt.imshow(
+    pheromone,
+    cmap='hot',
+    interpolation='nearest'
+)
+
+plt.colorbar(
+    label='Pheromone Intensity'
+)
+
+plt.title('Final Pheromone Matrix')
+
+plt.xlabel('City')
+plt.ylabel('City')
+
+plt.xticks(range(n_cities))
+plt.yticks(range(n_cities))
+
+plt.show()
+
+
+# ==========================================
+# END OF PROGRAM
+# ==========================================
+
+
+
+#Output:
+Starting Ant Colony Optimization...
+-------------------------------------
+Iteration   0 | Current Best = 28.63 | Overall Best = 28.63
+Iteration  10 | Current Best = 28.06 | Overall Best = 28.06
+Iteration  20 | Current Best = 28.06 | Overall Best = 28.06
+Iteration  30 | Current Best = 28.06 | Overall Best = 28.06
+Iteration  40 | Current Best = 28.06 | Overall Best = 28.06
+Iteration  50 | Current Best = 28.06 | Overall Best = 28.06
+Iteration  60 | Current Best = 28.06 | Overall Best = 28.06
+Iteration  70 | Current Best = 28.06 | Overall Best = 28.06
+Iteration  80 | Current Best = 28.06 | Overall Best = 28.06
+Iteration  90 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 100 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 110 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 120 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 130 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 140 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 150 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 160 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 170 | Current Best = 28.63 | Overall Best = 28.06
+Iteration 180 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 190 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 200 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 210 | Current Best = 28.63 | Overall Best = 28.06
+Iteration 220 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 230 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 240 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 250 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 260 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 270 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 280 | Current Best = 28.06 | Overall Best = 28.06
+Iteration 290 | Current Best = 28.06 | Overall Best = 28.06
+
+====================================
+ACO FINAL RESULTS
+====================================
+
+Best Route:
+4 -> 2 -> 7 -> 1 -> 3 -> 6 -> 5 -> 8 -> 4
+
+Shortest Distance: 28.0619
+Total Cities: 8
+Total Ants: 50
+Total Iterations: 300
+
+Exact Optimal Distance: 28.0619
+ACO optimality gap: -0.0 %
