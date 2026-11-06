@@ -1,0 +1,401 @@
+
+import numpy as np
+import matplotlib.pyplot as plt
+import math
+
+# ==================================================
+# 1. TRAFFIC DATA
+# ==================================================
+
+directions = ["North", "South", "East", "West"]
+
+# Number of waiting vehicles in each direction
+vehicles = np.array([45, 35, 60, 25], dtype=float)
+
+# Traffic signal settings
+cycle_time = 120
+clearance_time = 20
+
+green_budget = cycle_time - clearance_time
+
+min_green = 10
+max_green = 60
+
+# ==================================================
+# 2. CUCKOO SEARCH PARAMETERS
+# ==================================================
+
+n_nests = 25
+max_iterations = 150
+
+Pa = 0.25
+alpha = 0.5
+beta = 1.5
+
+rng = np.random.default_rng(42)
+
+# ==================================================
+# 3. FITNESS FUNCTION
+# ==================================================
+
+def fitness(green_times):
+
+    # A simplified traffic delay proxy.
+    # Higher vehicle demand and less green time
+    # produce a higher cost.
+
+    cost = np.sum(
+        (vehicles ** 2) / green_times
+    )
+
+    return cost
+
+
+# ==================================================
+# 4. REPAIR SOLUTION
+# ==================================================
+
+def repair_solution(solution):
+
+    # Ensure all green times are valid and their
+    # total equals the available green-time budget.
+
+    solution = np.asarray(solution, dtype=float)
+
+    lower = np.full(4, min_green)
+    upper = np.full(4, max_green)
+
+    # Project solution onto bounded simplex
+    left = -1000.0
+    right = 1000.0
+
+    for _ in range(100):
+
+        middle = (left + right) / 2
+
+        candidate = np.clip(
+            solution - middle,
+            lower,
+            upper
+        )
+
+        if np.sum(candidate) > green_budget:
+            left = middle
+        else:
+            right = middle
+
+    repaired = np.clip(
+        solution - (left + right) / 2,
+        lower,
+        upper
+    )
+
+    return repaired
+
+
+# ==================================================
+# 5. INITIALIZE NESTS
+# ==================================================
+
+def initialize_nests():
+
+    nests = []
+
+    for _ in range(n_nests):
+
+        random_solution = rng.dirichlet(
+            np.ones(4)
+        )
+
+        green_times = (
+            min_green
+            + random_solution
+            * (green_budget - 4 * min_green)
+        )
+
+        nests.append(green_times)
+
+    return np.array(nests)
+
+
+# ==================================================
+# 6. LEVY FLIGHT FUNCTION
+# ==================================================
+
+def levy_flight():
+
+    sigma = (
+        math.gamma(1 + beta)
+        * math.sin(math.pi * beta / 2)
+        /
+        (
+            math.gamma((1 + beta) / 2)
+            * beta
+            * 2 ** ((beta - 1) / 2)
+        )
+    ) ** (1 / beta)
+
+    u = rng.normal(0, sigma, size=4)
+
+    v = rng.normal(0, 1, size=4)
+
+    step = u / (
+        np.abs(v) ** (1 / beta) + 1e-10
+    )
+
+    return step
+
+
+# ==================================================
+# 7. CUCKOO SEARCH ALGORITHM
+# ==================================================
+
+nests = initialize_nests()
+
+fitness_history = []
+
+# Find initial best solution
+scores = np.array([
+    fitness(nest) for nest in nests
+])
+
+best_index = np.argmin(scores)
+
+best_nest = nests[best_index].copy()
+best_fitness = scores[best_index]
+
+for iteration in range(max_iterations):
+
+    # ----------------------------------------------
+    # A. GENERATE NEW CUCKOO SOLUTIONS
+    # ----------------------------------------------
+
+    for i in range(n_nests):
+
+        step = levy_flight()
+
+        new_solution = (
+            nests[i]
+            + alpha * step * (nests[i] - best_nest)
+        )
+
+        new_solution = repair_solution(new_solution)
+
+        new_fitness = fitness(new_solution)
+
+        # Select a random nest
+        j = rng.integers(0, n_nests)
+
+        # Replace if new solution is better
+        if new_fitness < fitness(nests[j]):
+
+            nests[j] = new_solution.copy()
+
+    # ----------------------------------------------
+    # B. ABANDON POOR NESTS
+    # ----------------------------------------------
+
+    scores = np.array([
+        fitness(nest) for nest in nests
+    ])
+
+    number_to_abandon = max(
+        1,
+        int(Pa * n_nests)
+    )
+
+    worst_indices = np.argsort(scores)[
+        -number_to_abandon:
+    ]
+
+    for index in worst_indices:
+
+        nests[index] = initialize_nests()[0]
+
+    # ----------------------------------------------
+    # C. UPDATE BEST SOLUTION
+    # ----------------------------------------------
+
+    scores = np.array([
+        fitness(nest) for nest in nests
+    ])
+
+    current_best_index = np.argmin(scores)
+
+    current_best_fitness = scores[
+        current_best_index
+    ]
+
+    if current_best_fitness < best_fitness:
+
+        best_fitness = current_best_fitness
+
+        best_nest = nests[
+            current_best_index
+        ].copy()
+
+    # Record convergence
+    fitness_history.append(best_fitness)
+
+    if iteration % 10 == 0:
+
+        print(
+            f"Iteration {iteration}: "
+            f"Best Fitness = {best_fitness:.4f}"
+        )
+
+
+# ==================================================
+# 8. DISPLAY FINAL RESULTS
+# ==================================================
+
+print("\n================================")
+print("CUCKOO SEARCH TRAFFIC RESULTS")
+print("================================")
+
+print("\nOptimized Green-Light Timings:")
+
+for direction, timing in zip(
+    directions, best_nest
+):
+
+    print(
+        f"{direction}: {timing:.2f} seconds"
+    )
+
+print("\nTotal Green Time:",
+      round(np.sum(best_nest), 2), "seconds")
+
+print("Clearance Time:",
+      clearance_time, "seconds")
+
+print("Total Cycle Time:",
+      round(np.sum(best_nest) + clearance_time, 2),
+      "seconds")
+
+print("\nBest Fitness:",
+      round(best_fitness, 4))
+
+
+# ==================================================
+# 9. CONVERGENCE GRAPH
+# ==================================================
+
+plt.figure(figsize=(9, 5))
+
+plt.plot(
+    fitness_history,
+    color="blue",
+    linewidth=2
+)
+
+plt.xlabel("Iterations")
+plt.ylabel("Best Fitness")
+
+plt.title(
+    "Cuckoo Search - Traffic Optimization"
+)
+
+plt.grid(True)
+
+plt.tight_layout()
+plt.show()
+
+
+# ==================================================
+# 10. OPTIMIZED TRAFFIC TIMINGS GRAPH
+# ==================================================
+
+plt.figure(figsize=(9, 5))
+
+plt.bar(
+    directions,
+    best_nest,
+    color=["blue", "green", "orange", "red"]
+)
+
+plt.xlabel("Traffic Direction")
+plt.ylabel("Green Time (seconds)")
+
+plt.title(
+    "Optimized Traffic Signal Timings"
+)
+
+plt.grid(axis="y")
+
+plt.tight_layout()
+plt.show()
+
+
+# ==================================================
+# 11. INITIAL VS OPTIMIZED TIMINGS
+# ==================================================
+
+initial_times = np.full(4, green_budget / 4)
+
+x = np.arange(4)
+width = 0.35
+
+plt.figure(figsize=(9, 5))
+
+plt.bar(
+    x - width / 2,
+    initial_times,
+    width,
+    label="Initial Timings"
+)
+
+plt.bar(
+    x + width / 2,
+    best_nest,
+    width,
+    label="Optimized Timings"
+)
+
+plt.xticks(x, directions)
+
+plt.ylabel("Green Time (seconds)")
+
+plt.title(
+    "Initial vs Optimized Traffic Signal Timings"
+)
+
+plt.legend()
+plt.grid(axis="y")
+
+plt.tight_layout()
+plt.show()
+
+
+OUTPUT:
+Iteration 0: Best Fitness = 276.7911
+Iteration 10: Best Fitness = 272.3145
+Iteration 20: Best Fitness = 272.2588
+Iteration 30: Best Fitness = 272.2504
+Iteration 40: Best Fitness = 272.2500
+Iteration 50: Best Fitness = 272.2500
+Iteration 60: Best Fitness = 272.2500
+Iteration 70: Best Fitness = 272.2500
+Iteration 80: Best Fitness = 272.2500
+Iteration 90: Best Fitness = 272.2500
+Iteration 100: Best Fitness = 272.2500
+Iteration 110: Best Fitness = 272.2500
+Iteration 120: Best Fitness = 272.2500
+Iteration 130: Best Fitness = 272.2500
+Iteration 140: Best Fitness = 272.2500
+
+================================
+CUCKOO SEARCH TRAFFIC RESULTS
+================================
+
+Optimized Green-Light Timings:
+North: 27.27 seconds
+South: 21.21 seconds
+East: 36.36 seconds
+West: 15.15 seconds
+
+Total Green Time: 100.0 seconds
+Clearance Time: 20 seconds
+Total Cycle Time: 120.0 seconds
+
+Best Fitness: 272.25
